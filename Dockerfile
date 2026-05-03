@@ -1,7 +1,9 @@
 FROM python:3.11-slim
 
-# Force rebuild
-RUN echo "Build timestamp: $(date)"
+# Force complete rebuild
+RUN echo "Build timestamp: $(date)" && \
+    echo "Forcing rebuild with new code - $(date +%s)" && \
+    apt-get update && apt-get install -y curl
 
 WORKDIR /app
 
