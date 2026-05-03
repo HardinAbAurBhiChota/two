@@ -49,14 +49,26 @@ BACKOFF_BASE = 1.5
 TOR_PROXY_URL = os.getenv("TOR_PROXY_URL", "socks5://127.0.0.1:9050")
 
 USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Safari/605.1.15",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/125.0.0.0",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko/20100101 Firefox/125.0",
+    "Mozilla/5.0 (X11; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+]
+
+# Free proxy list for rotation (updated regularly)
+FREE_PROXIES = [
+    "http://20.205.61.143:80",
+    "http://20.118.139.233:80",
+    "http://52.167.219.168:80",
+    "http://52.167.219.169:80",
+    "http://20.205.61.142:80",
+    "http://20.205.61.141:80",
 ]
 
 # Known keys from HAR analysis
@@ -79,11 +91,15 @@ AMENITY_MAP = {
 
 
 def _random_headers(language: str = "en") -> dict:
-    return {
-        "User-Agent": random.choice(USER_AGENTS),
+    """Generate realistic browser headers to avoid detection."""
+    ua = random.choice(USER_AGENTS)
+    
+    # Base headers
+    headers = {
+        "User-Agent": ua,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-        "Accept-Language": f"{language}-{language.upper()},{language};q=0.9,en;q=0.8",
-        "Accept-Encoding": "gzip, deflate, br",
+        "Accept-Language": f"{language}-{language.upper()},{language};q=0.9,en;q=0.8,en-US;q=0.7",
+        "Accept-Encoding": "gzip, deflate, br, zstd",
         "DNT": "1",
         "Upgrade-Insecure-Requests": "1",
         "Sec-Fetch-Dest": "document",
@@ -91,11 +107,64 @@ def _random_headers(language: str = "en") -> dict:
         "Sec-Fetch-Site": "none",
         "Sec-Fetch-User": "?1",
         "Cache-Control": "max-age=0",
-        "Sec-Ch-Ua": '"Google Chrome";v="125", "Chromium";v="125", "Not.A/Brand";v="24"',
-        "Sec-Ch-Ua-Mobile": "?0",
-        "Sec-Ch-Ua-Platform": '"Windows"',
         "Connection": "keep-alive",
     }
+    
+    # Add Chrome-specific headers if using Chrome
+    if "Chrome" in ua:
+        headers.update({
+            "Sec-Ch-Ua": '"Google Chrome";v="125", "Chromium";v="125", "Not.A/Brand";v="24"',
+            "Sec-Ch-Ua-Mobile": "?0",
+            "Sec-Ch-Ua-Platform": '"Windows"',
+            "Sec-Purpose": "prefetch",
+            "Purpose": "prefetch",
+        })
+    elif "Firefox" in ua:
+        headers.update({
+            "DNT": "1",
+            "Sec-GPC": "1",
+        })
+    elif "Safari" in ua:
+        headers.update({
+            "Sec-Ch-Ua": '"Safari";v="537.36"',
+            "Sec-Ch-Ua-Mobile": "?0",
+            "Sec-Ch-Ua-Platform": '"macOS"',
+        })
+    
+    # Randomize some values
+    if random.random() > 0.5:
+        headers["DNT"] = "0"
+    
+    return headers
+
+
+def _get_rotating_proxy() -> str:
+    """Get a rotating proxy from available sources."""
+    # Try free proxies first
+    if FREE_PROXIES:
+        return random.choice(FREE_PROXIES)
+    
+    # Try Tor if available
+    try:
+        import socket
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(2)
+        result = sock.connect_ex(("127.0.0.1", 9050))
+        sock.close()
+        if result == 0:
+            return TOR_PROXY_URL
+    except:
+        pass
+    
+    # Try loading from proxy file
+    try:
+        proxy = get_random_proxy()
+        if proxy:
+            return proxy
+    except:
+        pass
+    
+    return None
 
 
 def _safe_get(obj: Any, *keys, default=None) -> Any:
@@ -779,38 +848,89 @@ def fetch_travel_page(session: requests.Session, location: str, language: str = 
                       adults: int = 2, children: int = 0, children_ages: str = "",
                       page: int = 1, cursor: str = None,
                       proxy_url: str = None, timeout: int = 30) -> Optional[str]:
+    """
+    Fetch Google Hotels page with advanced anti-blocking techniques.
+    Implements proxy rotation, user agent rotation, and smart retry logic.
+    """
     params = _build_url_params(
         location=location, check_in=check_in, check_out=check_out,
         adults=adults, children=children, children_ages=children_ages,
         currency=currency, language=language, page=page, cursor=cursor
     )
-    headers = _random_headers(language)
-    proxies = None
-    if proxy_url:
-        proxies = {"http": proxy_url, "https": proxy_url}
+    
+    # Try multiple strategies
+    strategies = [
+        ("direct", None),
+        ("tor", TOR_PROXY_URL),
+        ("rotating", _get_rotating_proxy()),
+        ("user_provided", proxy_url),
+    ]
+    
+    for strategy_name, strategy_proxy in strategies:
+        if strategy_proxy is None and strategy_name != "direct":
+            continue
+            
+        logger.info(f"Trying strategy: {strategy_name}")
+        
+        # Generate fresh headers for each attempt
+        headers = _random_headers(language)
+        proxies = None
+        if strategy_proxy:
+            proxies = {"http": strategy_proxy, "https": strategy_proxy}
 
-    for attempt in range(1, MAX_RETRIES + 1):
-        try:
-            resp = session.get(
-                GOOGLE_HOTELS_URL, params=params, headers=headers,
-                proxies=proxies, timeout=timeout,
-                allow_redirects=True
-            )
-            if resp.status_code == 200:
-                return resp.text
-            if resp.status_code in (429, 503):
-                wait = BACKOFF_BASE ** attempt + random.uniform(0, 1)
-                logger.warning(f"Rate limited (HTTP {resp.status_code}). Retry {attempt}/{MAX_RETRIES} in {wait:.1f}s")
-                time.sleep(wait)
-                continue
-            logger.error(f"HTTP {resp.status_code} fetching page {page}")
-            return None
-        except requests.exceptions.ProxyError as e:
-            logger.warning(f"Proxy error: {e}. Retry {attempt}/{MAX_RETRIES}")
-            time.sleep(BACKOFF_BASE ** attempt)
-        except requests.exceptions.RequestException as e:
-            logger.warning(f"Request error: {e}. Retry {attempt}/{MAX_RETRIES}")
-            time.sleep(BACKOFF_BASE ** attempt)
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                # Add random delay to avoid rate limiting
+                if attempt > 1:
+                    delay = random.uniform(1, 3)
+                    time.sleep(delay)
+                
+                resp = session.get(
+                    GOOGLE_HOTELS_URL, params=params, headers=headers,
+                    proxies=proxies, timeout=timeout,
+                    allow_redirects=True
+                )
+                
+                if resp.status_code == 200:
+                    # Check if we got actual hotel data (not blocked)
+                    if "ds:0" in resp.text or len(resp.text) > 50000:
+                        logger.info(f"Success with {strategy_name} strategy on attempt {attempt}")
+                        return resp.text
+                    else:
+                        logger.warning(f"Got 200 but no data - likely blocked with {strategy_name}")
+                        continue
+                        
+                elif resp.status_code in (429, 503):
+                    wait = BACKOFF_BASE ** attempt + random.uniform(0, 2)
+                    logger.warning(f"Rate limited (HTTP {resp.status_code}) with {strategy_name}. Retry {attempt}/{MAX_RETRIES} in {wait:.1f}s")
+                    time.sleep(wait)
+                    continue
+                    
+                elif resp.status_code == 403:
+                    logger.warning(f"Forbidden (403) with {strategy_name} - blocked")
+                    break
+                    
+                else:
+                    logger.error(f"HTTP {resp.status_code} with {strategy_name}")
+                    break
+                    
+            except requests.exceptions.ProxyError as e:
+                logger.warning(f"Proxy error with {strategy_name}: {e}. Retry {attempt}/{MAX_RETRIES}")
+                time.sleep(BACKOFF_BASE ** attempt)
+                
+            except requests.exceptions.RequestException as e:
+                logger.warning(f"Request error with {strategy_name}: {e}. Retry {attempt}/{MAX_RETRIES}")
+                time.sleep(BACKOFF_BASE ** attempt)
+                
+            except Exception as e:
+                logger.error(f"Unexpected error with {strategy_name}: {e}")
+                break
+        
+        # If we get here, this strategy failed, try the next one
+        logger.warning(f"Strategy {strategy_name} failed completely")
+    
+    # All strategies failed
+    logger.error("All strategies failed - unable to fetch Google Hotels data")
     return None
 
 
@@ -852,65 +972,6 @@ def scrape_page(session: requests.Session, location: str, language: str,
     }
 
 
-def _get_mock_hotel_data(location: str, check_in: str, check_out: str) -> dict:
-    """Fallback mock data when Google blocks requests."""
-    logger.warning("Using mock data fallback due to Google blocking")
-    
-    mock_properties = [
-        {
-            "type": "hotel",
-            "title": f"Grand Hotel {location}",
-            "description": f"Luxury hotel in the heart of {location} with modern amenities",
-            "link": f"https://www.google.com/travel/hotels/{location.lower().replace(' ', '-')}",
-            "property_token": "mock_token_1",
-            "gps_coordinates": {"latitude": 26.1445, "longitude": 91.7362},
-            "check_in_time": "14:00",
-            "check_out_time": "11:00",
-            "rate_per_night": {"lowest": f"{'₹3,000' if location.lower() in ['mumbai', 'delhi', 'guwahati'] else '$150'}", "before_taxes_fees": None},
-            "total_rate": {"lowest": f"{'₹6,000' if location.lower() in ['mumbai', 'delhi', 'guwahati'] else '$300'}", "before_taxes_fees": None},
-            "nearby_places": [],
-            "hotel_class": "4-star hotel",
-            "extracted_hotel_class": 4,
-            "images": [{"thumbnail": "https://picsum.photos/400/300?random=1", "original_image": "https://picsum.photos/800/600?random=1"}],
-            "reviews": 4.2,
-            "overall_rating": 1250,
-            "ratings": [{"stars": 5, "count": 750}, {"stars": 4, "count": 400}, {"stars": 3, "count": 100}],
-            "location_rating": 4.5,
-            "reviews_breakdown": [],
-            "amenities": ["Free Wi-Fi", "Air conditioning", "Restaurant", "Room service", "Fitness center"],
-            "eco_certified": False,
-        },
-        {
-            "type": "hotel",
-            "title": f"City Plaza {location}",
-            "description": f"Modern business hotel in {location} with conference facilities",
-            "link": f"https://www.google.com/travel/hotels/{location.lower().replace(' ', '-')}-plaza",
-            "property_token": "mock_token_2",
-            "gps_coordinates": {"latitude": 26.1545, "longitude": 91.7462},
-            "check_in_time": "15:00",
-            "check_out_time": "12:00",
-            "rate_per_night": {"lowest": f"{'₹2,500' if location.lower() in ['mumbai', 'delhi', 'guwahati'] else '$120'}", "before_taxes_fees": None},
-            "total_rate": {"lowest": f"{'₹5,000' if location.lower() in ['mumbai', 'delhi', 'guwahati'] else '$240'}", "before_taxes_fees": None},
-            "nearby_places": [],
-            "hotel_class": "3-star hotel",
-            "extracted_hotel_class": 3,
-            "images": [{"thumbnail": "https://picsum.photos/400/300?random=2", "original_image": "https://picsum.photos/800/600?random=2"}],
-            "reviews": 4.0,
-            "overall_rating": 890,
-            "ratings": [{"stars": 4, "count": 500}, {"stars": 3, "count": 300}, {"stars": 2, "count": 90}],
-            "location_rating": 4.2,
-            "reviews_breakdown": [],
-            "amenities": ["Free Wi-Fi", "Air conditioning", "Business center", "Laundry"],
-            "eco_certified": True,
-        }
-    ]
-    
-    return {
-        "pagination": {"next_page_token": None, "total_results": 2},
-        "ads": [],
-        "brands": [],
-        "properties": mock_properties,
-    }
 
 
 def scrape_hotels(location: str, check_in: str, check_out: str,
@@ -973,8 +1034,8 @@ def scrape_hotels(location: str, check_in: str, check_out: str,
         all_brands.extend(page_brands)
 
         if not page_props and not page_ads:
-            logger.warning("No results on page 1 - likely blocked by Google. Using fallback data.")
-            return _get_mock_hotel_data(location, check_in, check_out)
+            logger.error("No results on page 1 - Google is blocking requests. Need better proxy/headers strategy.")
+            raise RuntimeError("Google blocking detected - unable to extract hotel data")
 
     # Extract pagination data from page 1 HTML
         html = result.get("html")

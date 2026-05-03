@@ -9,4 +9,4 @@ restartPolicyType = "on_failure"
 
 [env]
 PORT = "8000"
-CACHE_TTL_SECONDS = "0"
+CACHE_TTL_SECONDS = "300"
