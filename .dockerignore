@@ -1,0 +1,10 @@
+# Ignore everything
+*
+
+# But not these
+!app
+!requirements.txt
+!Dockerfile
+!railway.toml
+!start.sh
+!free-proxy-list.json
