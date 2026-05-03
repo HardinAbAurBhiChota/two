@@ -853,10 +853,12 @@ def scrape_hotels(location: str, check_in: str, check_out: str,
                   currency: str = "USD", language: str = "en",
                   max_pages: int = 0, proxy_url: str = None,
                   timeout: int = 30) -> dict:
+    proxy_list = []
     if not proxy_url:
-        proxy_url = get_random_proxy()
-        if proxy_url:
-            logger.info(f"Using Webshare proxy: {proxy_url[:50]}...")
+        proxy_list = get_proxies()
+        if proxy_list:
+            logger.info(f"Loaded {len(proxy_list)} Webshare proxies for rotation")
+            proxy_url = proxy_list[0]["url"]
         else:
             logger.warning("No Webshare proxy available, trying without proxy")
 
@@ -866,6 +868,15 @@ def scrape_hotels(location: str, check_in: str, check_out: str,
     all_brands = []
     total_results = None
     calculated_max_pages = 1000
+    proxy_index = 0
+
+    def get_next_proxy():
+        nonlocal proxy_index
+        if proxy_list:
+            proxy = proxy_list[proxy_index % len(proxy_list)]["url"]
+            proxy_index += 1
+            return proxy
+        return proxy_url
 
     # Page 1: fetch via normal HTML request
     logger.info("Scraping page 1 (HTML fetch)...")
@@ -873,7 +884,7 @@ def scrape_hotels(location: str, check_in: str, check_out: str,
         session, location=location, language=language, currency=currency,
         check_in=check_in, check_out=check_out, adults=adults,
         children=children, children_ages=children_ages,
-        page=1, proxy_url=proxy_url, timeout=timeout
+        page=1, proxy_url=get_next_proxy(), timeout=timeout
     )
 
     if result.get("total_results"):
@@ -936,7 +947,8 @@ def scrape_hotels(location: str, check_in: str, check_out: str,
         params["ap"] = "MAE"
 
         headers = _random_headers(language)
-        proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
+        current_proxy = get_next_proxy()
+        proxies = {"http": current_proxy, "https": current_proxy} if current_proxy else None
 
         page_html = None
         for attempt in range(1, MAX_RETRIES + 1):
