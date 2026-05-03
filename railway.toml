@@ -4,5 +4,8 @@ builder = "dockerfile"
 [deploy]
 startCommand = "bash start.sh"
 healthcheckPath = "/health"
-healthcheckTimeout = 10
+healthcheckTimeout = 30
 restartPolicyType = "on_failure"
+
+[env]
+PORT = "8000"

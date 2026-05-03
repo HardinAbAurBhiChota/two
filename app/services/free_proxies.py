@@ -27,8 +27,11 @@ def load_free_proxies(force_refresh: bool = False) -> list[dict]:
 
         try:
             if not os.path.exists(PROXY_FILE):
-                logger.warning(f"Proxy file not found: {PROXY_FILE}")
-                return _proxy_list
+                logger.warning(f"Proxy file not found: {PROXY_FILE}, creating empty file")
+                # Create empty proxy file with structure
+                with open(PROXY_FILE, "w") as f:
+                    json.dump({"proxies": []}, f)
+                return []
 
             with open(PROXY_FILE, "r") as f:
                 data = json.load(f)

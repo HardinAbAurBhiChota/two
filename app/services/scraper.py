@@ -853,161 +853,172 @@ def scrape_hotels(location: str, check_in: str, check_out: str,
                   currency: str = "USD", language: str = "en",
                   max_pages: int = 0, proxy_url: str = None,
                   timeout: int = 30) -> dict:
-    proxy_list = []
-    if not proxy_url:
-        try:
-            proxy_list = get_proxies()
+    try:
+        proxy_list = []
+        if not proxy_url:
+            try:
+                proxy_list = get_proxies()
+                if proxy_list:
+                    logger.info(f"Loaded {len(proxy_list)} free residential proxies for rotation")
+                    proxy_url = proxy_list[0]["url"]
+                else:
+                    logger.warning("No free proxy available, trying without proxy")
+            except Exception as e:
+                logger.warning(f"Failed to load proxies: {e}, continuing without proxy")
+
+        session = requests.Session()
+        all_ads = []
+        all_properties = []
+        all_brands = []
+        total_results = None
+        calculated_max_pages = 1000
+        proxy_index = 0
+
+        def get_next_proxy():
+            nonlocal proxy_index
             if proxy_list:
-                logger.info(f"Loaded {len(proxy_list)} free residential proxies for rotation")
-                proxy_url = proxy_list[0]["url"]
+                proxy = proxy_list[proxy_index % len(proxy_list)]["url"]
+                proxy_index += 1
+                return proxy
             else:
-                logger.info("No proxy available - scraping without proxy")
-        except Exception as e:
-            logger.info(f"Proxy loading failed: {e} - scraping without proxy")
-
-    session = requests.Session()
-    all_ads = []
-    all_properties = []
-    all_brands = []
-    total_results = None
-    calculated_max_pages = 1000
-    proxy_index = 0
-
-    def get_next_proxy():
-        nonlocal proxy_index
-        if proxy_list:
-            proxy = proxy_list[proxy_index % len(proxy_list)]["url"]
-            proxy_index += 1
-            return proxy
-        return proxy_url
+                return proxy_url
 
     # Page 1: fetch via normal HTML request
-    logger.info("Scraping page 1 (HTML fetch)...")
-    result = scrape_page(
-        session, location=location, language=language, currency=currency,
-        check_in=check_in, check_out=check_out, adults=adults,
-        children=children, children_ages=children_ages,
-        page=1, proxy_url=get_next_proxy(), timeout=timeout
-    )
-
-    if result.get("total_results"):
-        total_results = result["total_results"]
-        calculated_max_pages = (total_results + 19) // 20
-        logger.info(f"Total results: {total_results}, pages needed: {calculated_max_pages}")
-
-    page_ads = result.get("ads", [])
-    page_props = result.get("properties", [])
-    page_brands = result.get("brands", [])
-
-    logger.info(f"Page 1: {len(page_ads)} ads, {len(page_props)} properties")
-
-    all_ads.extend(page_ads)
-    all_properties.extend(page_props)
-    all_brands.extend(page_brands)
-
-    if not page_props and not page_ads:
-        logger.info("No results on page 1, stopping.")
-        return _build_scrape_result(all_ads, all_properties, all_brands, total_results)
-
-    # Extract pagination data from page 1 HTML
-    html = result.get("html")
-    next_page_token = _extract_next_page_token(html) if html else None
-
-    if not next_page_token:
-        logger.info("No next-page-token found in page 1, pagination not available.")
-        return _build_scrape_result(all_ads, all_properties, all_brands, total_results)
-
-    # Build ts param (stays constant across all pages)
-    mid = _extract_mid(html) if html else "/m/03fxfy"
-    place_id = _extract_place_id(html) if html else "0x375a5a287f9133ff:0x2bbd1332436bde32"
-    ts_currency = _extract_currency_for_ts(currency)
-    ts = _build_ts_param(mid, place_id, location, check_in, check_out, ts_currency)
-
-    logger.info(f"Pagination: ts={ts[:30]}..., next_token={next_page_token}")
-
-    # Pages 2+: fetch with ts + qs URL params
-    for page in range(2, 1001):
-        if max_pages > 0 and page > max_pages:
-            break
-        if max_pages == 0 and page > calculated_max_pages:
-            logger.info(f"Reached calculated max pages ({calculated_max_pages})")
-            break
-        if not next_page_token:
-            logger.info("No next-page-token — pagination complete.")
-            break
-
-        qs = _build_qs_param(next_page_token, page)
-        logger.info(f"Scraping page {page} (ts+qs, token={next_page_token})...")
-
-        # Build URL params for next page
-        params = _build_url_params(
-            location=location, check_in=check_in, check_out=check_out,
-            adults=adults, children=children, children_ages=children_ages,
-            currency=currency, language=language
+        logger.info("Scraping page 1 (HTML fetch)...")
+        result = scrape_page(
+            session, location=location, language=language, currency=currency,
+            check_in=check_in, check_out=check_out, adults=adults,
+            children=children, children_ages=children_ages,
+            page=1, proxy_url=get_next_proxy(), timeout=timeout
         )
-        params["ts"] = ts
-        params["qs"] = qs
-        params["ap"] = "MAE"
 
-        headers = _random_headers(language)
-        current_proxy = get_next_proxy()
-        proxies = {"http": current_proxy, "https": current_proxy} if current_proxy else None
+        if result.get("total_results"):
+            total_results = result["total_results"]
+            calculated_max_pages = (total_results + 19) // 20
+            logger.info(f"Total results: {total_results}, pages needed: {calculated_max_pages}")
 
-        page_html = None
-        for attempt in range(1, MAX_RETRIES + 1):
-            try:
-                resp = session.get(GOOGLE_HOTELS_URL, params=params,
-                                   headers=headers, proxies=proxies, timeout=timeout)
-                if resp.status_code == 200:
-                    page_html = resp.text
-                    break
-                if resp.status_code in (429, 503):
-                    wait = BACKOFF_BASE ** attempt + random.uniform(0, 1)
-                    logger.warning(f"Rate limited (HTTP {resp.status_code}). Retry {attempt}/{MAX_RETRIES} in {wait:.1f}s")
-                    time.sleep(wait)
-                    continue
-                logger.error(f"HTTP {resp.status_code} on page {page}")
-                break
-            except requests.exceptions.RequestException as e:
-                logger.warning(f"Request error on page {page}: {e}. Retry {attempt}/{MAX_RETRIES}")
-                time.sleep(BACKOFF_BASE ** attempt)
+        page_ads = result.get("ads", [])
+        page_props = result.get("properties", [])
+        page_brands = result.get("brands", [])
 
-        if not page_html:
-            logger.info(f"Failed to fetch page {page}, stopping.")
-            break
-
-        ds0 = _extract_ds0_data(page_html)
-        if not ds0:
-            logger.info(f"No ds:0 data on page {page}, stopping.")
-            break
-
-        container = _find_container(ds0)
-        if not container:
-            logger.info(f"No container on page {page}, stopping.")
-            break
-
-        page_props = _extract_organic_hotels(container)
-        page_ads = _extract_sponsored_hotels(container)
-        page_brands = _extract_brands(container)
-
-        logger.info(f"Page {page}: {len(page_ads)} ads, {len(page_props)} properties")
-
-        if not page_props and not page_ads:
-            logger.info(f"No more results after page {page}")
-            break
+        logger.info(f"Page 1: {len(page_ads)} ads, {len(page_props)} properties")
 
         all_ads.extend(page_ads)
         all_properties.extend(page_props)
         all_brands.extend(page_brands)
 
-        # Extract next page token for the following page
-        next_page_token = _extract_next_page_token(page_html)
+        if not page_props and not page_ads:
+            logger.info("No results on page 1, stopping.")
+            return _build_scrape_result(all_ads, all_properties, all_brands, total_results)
 
-    raw_ads_count = len(all_ads)
-    raw_props_count = len(all_properties)
+    # Extract pagination data from page 1 HTML
+        html = result.get("html")
+        next_page_token = _extract_next_page_token(html) if html else None
 
-    return _build_scrape_result(all_ads, all_properties, all_brands, total_results,
-                                raw_ads_count, raw_props_count)
+        if not next_page_token:
+            logger.info("No next-page-token found in page 1, pagination not available.")
+            return _build_scrape_result(all_ads, all_properties, all_brands, total_results)
+
+        # Build ts param (stays constant across all pages)
+        mid = _extract_mid(html) if html else "/m/03fxfy"
+        place_id = _extract_place_id(html) if html else "0x375a5a287f9133ff:0x2bbd1332436bde32"
+        ts_currency = _extract_currency_for_ts(currency)
+        ts = _build_ts_param(mid, place_id, location, check_in, check_out, ts_currency)
+
+        logger.info(f"Pagination: ts={ts[:30]}..., next_token={next_page_token}")
+
+        # Pages 2+: fetch with ts + qs URL params
+        for page in range(2, 1001):
+            if max_pages > 0 and page > max_pages:
+                break
+            if max_pages == 0 and page > calculated_max_pages:
+                logger.info(f"Reached calculated max pages ({calculated_max_pages})")
+                break
+            if not next_page_token:
+                logger.info("No next-page-token — pagination complete.")
+                break
+
+            qs = _build_qs_param(next_page_token, page)
+            logger.info(f"Scraping page {page} (ts+qs, token={next_page_token})...")
+
+            # Build URL params for next page
+            params = _build_url_params(
+                location=location, check_in=check_in, check_out=check_out,
+                adults=adults, children=children, children_ages=children_ages,
+                currency=currency, language=language
+            )
+            params["ts"] = ts
+            params["qs"] = qs
+            params["ap"] = "MAE"
+
+            headers = _random_headers(language)
+            current_proxy = get_next_proxy()
+            proxies = {"http": current_proxy, "https": current_proxy} if current_proxy else None
+
+            page_html = None
+            for attempt in range(1, MAX_RETRIES + 1):
+                try:
+                    resp = session.get(GOOGLE_HOTELS_URL, params=params,
+                                       headers=headers, proxies=proxies, timeout=timeout)
+                    if resp.status_code == 200:
+                        page_html = resp.text
+                        break
+                    if resp.status_code in (429, 503):
+                        wait = BACKOFF_BASE ** attempt + random.uniform(0, 1)
+                        logger.warning(f"Rate limited (HTTP {resp.status_code}). Retry {attempt}/{MAX_RETRIES} in {wait:.1f}s")
+                        time.sleep(wait)
+                        continue
+                    logger.error(f"HTTP {resp.status_code} on page {page}")
+                    break
+                except requests.exceptions.RequestException as e:
+                    logger.warning(f"Request error on page {page}: {e}. Retry {attempt}/{MAX_RETRIES}")
+                    time.sleep(BACKOFF_BASE ** attempt)
+
+            if not page_html:
+                logger.info(f"Failed to fetch page {page}, stopping.")
+                break
+
+            ds0 = _extract_ds0_data(page_html)
+            if not ds0:
+                logger.info(f"No ds:0 data on page {page}, stopping.")
+                break
+
+            container = _find_container(ds0)
+            if not container:
+                logger.info(f"No container on page {page}, stopping.")
+                break
+
+            page_props = _extract_organic_hotels(container)
+            page_ads = _extract_sponsored_hotels(container)
+            page_brands = _extract_brands(container)
+
+            logger.info(f"Page {page}: {len(page_ads)} ads, {len(page_props)} properties")
+
+            if not page_props and not page_ads:
+                logger.info(f"No more results after page {page}")
+                break
+
+            all_ads.extend(page_ads)
+            all_properties.extend(page_props)
+            all_brands.extend(page_brands)
+
+            # Extract next page token for the following page
+            next_page_token = _extract_next_page_token(page_html)
+
+        raw_ads_count = len(all_ads)
+        raw_props_count = len(all_properties)
+
+        return _build_scrape_result(all_ads, all_properties, all_brands, total_results,
+                                    raw_ads_count, raw_props_count)
+    except Exception as e:
+        logger.error(f"Scraping failed: {e}", exc_info=True)
+        # Return empty result on failure
+        return {
+            "pagination": {"next_page_token": None, "total_results": 0},
+            "ads": [],
+            "brands": [],
+            "properties": [],
+        }
 
 
 def _build_scrape_result(all_ads, all_properties, all_brands, total_results,

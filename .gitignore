@@ -3,7 +3,8 @@ __pycache__/
 *.pyc
 .pytest_cache/
 venv/
-*.json
 reference/
 context.md
 CONTEXT.md
+# Allow specific JSON files
+!free-proxy-list.json
