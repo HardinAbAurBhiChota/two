@@ -7,7 +7,7 @@ import time
 
 logger = logging.getLogger(__name__)
 
-PROXY_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "free-proxy-list.json")
+PROXY_FILE = os.getenv("PROXY_FILE", "/app/free-proxy-list.json")
 
 _proxy_list = []
 _last_load = 0
