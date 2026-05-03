@@ -35,6 +35,7 @@ import re
 import time
 from typing import Any, Optional
 
+import os
 import requests
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,8 @@ logger = logging.getLogger(__name__)
 GOOGLE_HOTELS_URL = "https://www.google.com/travel/search"
 MAX_RETRIES = 3
 BACKOFF_BASE = 1.5
+
+TOR_PROXY_URL = os.getenv("TOR_PROXY_URL", "socks5://127.0.0.1:9050")
 
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -844,6 +847,10 @@ def scrape_hotels(location: str, check_in: str, check_out: str,
                   currency: str = "USD", language: str = "en",
                   max_pages: int = 0, proxy_url: str = None,
                   timeout: int = 30) -> dict:
+    if not proxy_url:
+        proxy_url = TOR_PROXY_URL
+        logger.info(f"Using Tor proxy: {proxy_url}")
+
     session = requests.Session()
     all_ads = []
     all_properties = []
