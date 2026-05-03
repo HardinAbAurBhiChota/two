@@ -855,12 +855,15 @@ def scrape_hotels(location: str, check_in: str, check_out: str,
                   timeout: int = 30) -> dict:
     proxy_list = []
     if not proxy_url:
-        proxy_list = get_proxies()
-        if proxy_list:
-            logger.info(f"Loaded {len(proxy_list)} free residential proxies for rotation")
-            proxy_url = proxy_list[0]["url"]
-        else:
-            logger.warning("No free proxy available, trying without proxy")
+        try:
+            proxy_list = get_proxies()
+            if proxy_list:
+                logger.info(f"Loaded {len(proxy_list)} free residential proxies for rotation")
+                proxy_url = proxy_list[0]["url"]
+            else:
+                logger.info("No proxy available - scraping without proxy")
+        except Exception as e:
+            logger.info(f"Proxy loading failed: {e} - scraping without proxy")
 
     session = requests.Session()
     all_ads = []
