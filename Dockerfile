@@ -1,5 +1,8 @@
 FROM python:3.11-slim
 
+# Force rebuild
+RUN echo "Build timestamp: $(date)"
+
 WORKDIR /app
 
 COPY requirements.txt .
