@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: crawlzo
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 4
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+      - key: CACHE_TTL_SECONDS
+        value: "600"
