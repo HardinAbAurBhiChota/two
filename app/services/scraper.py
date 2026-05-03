@@ -38,6 +38,8 @@ from typing import Any, Optional
 import os
 import requests
 
+from app.services.webshare import get_random_proxy
+
 logger = logging.getLogger(__name__)
 
 GOOGLE_HOTELS_URL = "https://www.google.com/travel/search"
@@ -852,8 +854,11 @@ def scrape_hotels(location: str, check_in: str, check_out: str,
                   max_pages: int = 0, proxy_url: str = None,
                   timeout: int = 30) -> dict:
     if not proxy_url:
-        proxy_url = TOR_PROXY_URL
-        logger.info(f"Using Tor proxy: {proxy_url}")
+        proxy_url = get_random_proxy()
+        if proxy_url:
+            logger.info(f"Using Webshare proxy: {proxy_url[:50]}...")
+        else:
+            logger.warning("No Webshare proxy available, trying without proxy")
 
     session = requests.Session()
     all_ads = []
