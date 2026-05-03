@@ -38,7 +38,7 @@ from typing import Any, Optional
 import os
 import requests
 
-from app.services.webshare import get_random_proxy
+from app.services.free_proxies import get_random_proxy, get_proxies
 
 logger = logging.getLogger(__name__)
 
@@ -857,10 +857,10 @@ def scrape_hotels(location: str, check_in: str, check_out: str,
     if not proxy_url:
         proxy_list = get_proxies()
         if proxy_list:
-            logger.info(f"Loaded {len(proxy_list)} Webshare proxies for rotation")
+            logger.info(f"Loaded {len(proxy_list)} free residential proxies for rotation")
             proxy_url = proxy_list[0]["url"]
         else:
-            logger.warning("No Webshare proxy available, trying without proxy")
+            logger.warning("No free proxy available, trying without proxy")
 
     session = requests.Session()
     all_ads = []
